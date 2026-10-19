@@ -1,0 +1,44 @@
+{
+  "id": "reply-safety",
+  "name": "回复安全网",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "category": "utility",
+  "description": "把模型写在正文里、却没通过 send_message 发出去的成稿，抢救成真正的消息。工具集较大时模型会退化成「直接说话」，而正文按设计不会发到 QQ，用户看到的就是「未回复」——本插件补上这道兜底。只搬原句，不生成、不改写、不润色；拿不准一律不发。",
+  "author": "DC1024",
+  "entry": "index.js",
+  "permissions": [],
+  "enabledByDefault": true,
+  "capabilities": [
+    "reply.is-planning-text",
+    "reply.loose-send"
+  ],
+  "settings": {
+    "enabled": true,
+    "maxMessages": 3,
+    "maxCharsPerMessage": 80,
+    "minChars": 2
+  },
+  "configSchema": {
+    "enabled": {
+      "type": "boolean",
+      "label": "启用",
+      "description": "关闭后本插件不提供任何能力，行为退回上游默认（模型没调 send_message 就是 noreply）。"
+    },
+    "maxMessages": {
+      "type": "number",
+      "label": "最多拆几条",
+      "description": "一次抢救最多发几条消息。聊天气泡式分条更像真人，但太多会刷屏，默认 3。"
+    },
+    "maxCharsPerMessage": {
+      "type": "number",
+      "label": "单条字数上限",
+      "description": "超过就截断。默认 80，避免把整段文章当聊天发出去。"
+    },
+    "minChars": {
+      "type": "number",
+      "label": "最短句子长度",
+      "description": "太短的碎片（如单个「嗯」）不单独成条，默认 2。"
+    }
+  }
+}
