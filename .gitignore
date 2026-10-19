@@ -25,6 +25,10 @@ node_modules/
 # 便携 QQ 运行时（setup 脚本下载/安装，不入库）
 runtime/
 
+# NapCat 协议端数据（容器部署用）：登录态 + 网络配置，等同账号凭据，绝不入库
+data-napcat/
+napcat/
+
 # 系统文件
 .DS_Store
 Thumbs.db

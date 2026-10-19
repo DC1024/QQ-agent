@@ -1,0 +1,39 @@
+# 构建上下文瘦身：这些东西要么不该进镜像，要么会污染层缓存
+
+# 依赖与产物
+node_modules
+dist
+release
+*.exe
+*.msi
+*.tar.zst
+
+# 运行时数据（真实聊天记录、含 API Key 的 config.json、NapCat 登录态）
+data
+data-napcat
+napcat
+snowluma
+runtime
+.trash
+
+# 测试与文档
+test
+doc
+.zcodeignore
+
+# 版本控制与 CI
+.git
+.github
+.gitignore
+
+# 本地环境
+.env
+.env.local
+community.key
+*.log
+*.tmp
+*.bak
+.vscode
+.idea
+.DS_Store
+Thumbs.db

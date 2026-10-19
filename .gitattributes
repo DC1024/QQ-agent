@@ -1,0 +1,10 @@
+# 容器与 CI 相关文件强制 LF。
+# CRLF 会让 Dockerfile 的 RUN 指令在行尾带上 \r，在 Linux 构建机上表现为
+# "/bin/sh: 1: apt-get: not found" 或 "$'\r': command not found"，
+# 排查方向很容易被带偏（看起来像镜像源或 shell 的问题）。
+Dockerfile text eol=lf
+.dockerignore text eol=lf
+docker-compose.yml text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.sh text eol=lf

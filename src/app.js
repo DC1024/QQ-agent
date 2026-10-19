@@ -1168,14 +1168,34 @@ export function createApp({ log = console.log } = {}) {
       || /^\[::1\](:\d+)?$/.test(host);
   }
 
+  // 容器 / 反向代理场景：服务不再监听回环，但仍需要一张"可信 Host"名单。
+  // 用 QQ_AGENT_ALLOWED_HOSTS 显式列出（逗号分隔，含端口，大小写不敏感），例如：
+  //   QQ_AGENT_ALLOWED_HOSTS="qq-agent:3210,192.168.1.10:3210"
+  // 默认空 = 只接受回环，行为与上游完全一致。
+  // 刻意不做通配（不认 *.example.com、不认裸 IP 段）：DNS rebinding 的攻击面
+  // 正是"任意域名解析到本机 IP"，一旦允许后缀匹配，这道防线就形同虚设。
+  const ALLOWED_HOSTS = new Set(
+    String(process.env.QQ_AGENT_ALLOWED_HOSTS || '')
+      .split(',')
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean)
+  );
+
+  function isAllowedHostHeader(host) {
+    const h = String(host).toLowerCase();
+    return isLoopbackHostHeader(h) || ALLOWED_HOSTS.has(h);
+  }
+
   function originAllowed(req) {
     const host = String(req.headers.host ?? '');
-    if (!isLoopbackHostHeader(host)) return false;
+    if (!isAllowedHostHeader(host)) return false;
     const origin = String(req.headers.origin ?? '');
     if (origin) {
       try {
         const u = new URL(origin);
-        return isLoopbackHostHeader(u.host) && u.host === host;
+        // 同源判定：Origin 的 host 必须与 Host 完全一致（端口也算）。
+        // 只放宽"哪些 host 算自己人"，不放宽"必须同源"。
+        return isAllowedHostHeader(u.host) && u.host === host;
       } catch { return false; }
     }
     const referer = String(req.headers.referer ?? '');
@@ -1457,10 +1477,15 @@ export function createApp({ log = console.log } = {}) {
   // DSH 自动导入已移除：模型目录改为在设置页手动维护（见 /api/providers 相关接口）。
 
   // ── 启停 ──
+  // 监听地址默认仍是 127.0.0.1（桌面端与 headless 的原始行为）。
+  // 容器里需要从宿主机/其他容器访问时才设 QQ_AGENT_HOST=0.0.0.0，
+  // 同时必须配 QQ_AGENT_ALLOWED_HOSTS，否则 /api/* 会 403（这道校验是有意的）。
+  const BIND_HOST = String(process.env.QQ_AGENT_HOST || '127.0.0.1').trim() || '127.0.0.1';
+
   async function listenOn(port) {
     return new Promise((resolve, reject) => {
       server.once('error', reject);
-      server.listen(port, '127.0.0.1', () => {
+      server.listen(port, BIND_HOST, () => {
         server.off('error', reject);
         resolve(port); // 必须把实际端口传回去，Electron 壳要用它加载页面
       });
@@ -1597,7 +1622,7 @@ export function createApp({ log = console.log } = {}) {
     }, 45_000).unref?.();
     if (getConfig().proactive?.enabled) orchestrator.startProactiveLoop();
     orchestrator.startReminderLoop();   // 提醒（闹钟）调度：到点往群里发提醒
-    log(`控制台已就绪：http://127.0.0.1:${port}`);
+    log(`控制台已就绪：http://${BIND_HOST === '0.0.0.0' ? '127.0.0.1' : BIND_HOST}:${port}`);
     log(`OneBot（SnowLuma）: ws=${getConfig().snowluma?.wsUrl} http=${getConfig().snowluma?.httpUrl}`);
     log(`模型: ${getConfig().api.model || '（未设置，请在设置里选择）'} @ ${getConfig().api.baseUrl}`);
     return port;

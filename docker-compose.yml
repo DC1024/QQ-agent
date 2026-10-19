@@ -1,0 +1,80 @@
+# QQ Agent 容器编排 —— 方案 A：host 网络
+#
+# 为什么用 host 网络而不是 ports 映射：
+#   src/app.js 默认只监听 127.0.0.1，端口映射出去也访问不到；
+#   即便改监听 0.0.0.0，HTTP 层还会校验 Host 必须是回环 / 白名单，否则 /api/* 全 403。
+#   host 网络下容器内的 127.0.0.1 就是宿主机回环，浏览器从宿主机直接打开
+#   http://127.0.0.1:3210 天然满足该校验，一行代码都不用改。
+#   远程访问用 SSH 隧道：ssh -L 3210:127.0.0.1:3210 user@192.168.1.10
+#
+# 需要局域网/公网直接访问时，看文件末尾的「可选：放开网卡监听」。
+
+name: qq-agent
+
+services:
+  qq-agent:
+    image: ghcr.io/dc1024/qq-agent:latest
+    # 想直接在本机构建就用下面这行替换 image:
+    # build: .
+    container_name: qq-agent
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      TZ: Asia/Shanghai
+      QQ_AGENT_DATA_DIR: /app/data
+      QQ_AGENT_PORT: "${QQ_AGENT_PORT:-3210}"
+      # 监听地址与可信 Host 白名单，由同目录 .env 控制（模板见 .env.example）。
+      # 默认值 = 只监听回环，必须配 SSH 隧道访问；改成 0.0.0.0 时
+      # QQ_AGENT_ALLOWED_HOSTS 必须同时给出，否则页面能打开、接口全 403。
+      QQ_AGENT_HOST: "${QQ_AGENT_HOST:-127.0.0.1}"
+      QQ_AGENT_ALLOWED_HOSTS: "${QQ_AGENT_ALLOWED_HOSTS:-}"
+    volumes:
+      # 配置、会话、记忆、表情库、用量统计全在这里（含 API Key，注意备份）
+      - ./data:/app/data
+      # 扩展目录：放进去即热重载，出厂为空
+      - ./skills:/app/skills
+      - ./plugins:/app/plugins
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  napcat:
+    # QQ 协议端（OneBot v11）。容器内跑 Linux QQ，不是 Windows 版。
+    image: mlikiowa/napcat-docker:latest
+    container_name: napcat
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      TZ: Asia/Shanghai
+      # 与宿主机用户对齐，避免挂载目录写不进去（宿主机先 chown 1000:1000）
+      NAPCAT_UID: "1000"
+      NAPCAT_GID: "1000"
+      # 想跳过扫码、用快速登录时填（可选，也支持 WebUI 里扫码）
+      # ACCOUNT: "你的QQ号"
+    volumes:
+      # OneBot / 网络配置、插件配置
+      - ./data-napcat/config:/app/napcat/config
+      # QQ 登录态（丢了就要重新扫码）
+      - ./data-napcat/qq:/app/.config/QQ
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+# ── 局域网 / 手机访问 ──────────────────────────────────────────────────
+# 1) cp .env.example .env
+# 2) 在 .env 里改两行（两个必须成对，缺一个就全是 403）：
+#      QQ_AGENT_HOST=0.0.0.0
+#      QQ_AGENT_ALLOWED_HOSTS=192.168.1.10:3210
+# 3) docker compose up -d
+#
+# 注意 NapCat 的 WebUI（6099）本来就是 0.0.0.0 监听，宿主机有公网 IP 时
+# 记得用 ufw 限制，别把扫码登录页暴露出去：
+#   sudo ufw allow from 192.168.1.0/24 to any port 6099
+#
+# 任何暴露都不能替代鉴权：本项目前端把控制台标识头硬编码为
+# 'qq-agent-console'，server.token 实际只有一个有效取值，等于没有密钥。
+# 局域网内可接受，**要出公网必须套一层带 Basic Auth 的反向代理**。
