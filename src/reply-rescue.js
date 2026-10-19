@@ -53,10 +53,15 @@ export async function rescueUnsentReply({
   const alreadySent = (sent || []).filter((s) => s?.type === 'text').map((s) => String(s.text || ''));
 
   // ② 正则级抢救（便宜、不花模型调用）
+  // sentCount 一并透传：模型本次运行里已经用工具发过话时，剩下的正文
+  // 基本都是收尾思考（"发完这句就先停"那类），抢救它等于把内心戏发进群。
+  // 判不判、判多严交给提供者决定，这里只负责把事实告诉它。
   let messages = [];
   const looseFn = cap('reply.loose-send');
   if (looseFn) {
-    try { messages = asMessages(looseFn({ text: body })?.messages); } catch { messages = []; }
+    try {
+      messages = asMessages(looseFn({ text: body, sentCount: alreadySent.length })?.messages);
+    } catch { messages = []; }
   }
 
   // ③ 裁判级抢救。默认关闭，且只在②没捞到时才走（省一次模型调用）。

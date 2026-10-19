@@ -15,6 +15,7 @@
   ],
   "settings": {
     "enabled": true,
+    "rescueAfterSent": false,
     "maxMessages": 3,
     "maxCharsPerMessage": 80,
     "minChars": 2
@@ -24,6 +25,11 @@
       "type": "boolean",
       "label": "启用",
       "description": "关闭后本插件不提供任何能力，行为退回上游默认（模型没调 send_message 就是 noreply）。"
+    },
+    "rescueAfterSent": {
+      "type": "boolean",
+      "label": "已发过话后仍抢救",
+      "description": "模型本次已经用 send_message 发过消息时，还要不要抢救它剩下的正文。默认关：那条路径实测发出来的都是「发完这句就先停」这类收尾内心戏。关掉不影响「一条都没发出」时的抢救。"
     },
     "maxMessages": {
       "type": "number",
