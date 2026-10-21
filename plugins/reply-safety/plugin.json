@@ -18,7 +18,8 @@
     "rescueAfterSent": false,
     "maxMessages": 3,
     "maxCharsPerMessage": 80,
-    "minChars": 2
+    "minChars": 2,
+    "metaDenyCount": 2
   },
   "configSchema": {
     "enabled": {
@@ -45,6 +46,11 @@
       "type": "number",
       "label": "最短句子长度",
       "description": "太短的碎片（如单个「嗯」）不单独成条，默认 2。"
+    },
+    "metaDenyCount": {
+      "type": "number",
+      "label": "整段否决阈值",
+      "description": "正文里有几句被判定为「内心戏 / 元指令 / 工具名残留」就整段放弃。默认 2：逐句过滤只能挡住混着的情况，正文通篇是自说自话时必须整段丢弃。调大会漏发，调小会误杀正常话。"
     }
   }
 }
