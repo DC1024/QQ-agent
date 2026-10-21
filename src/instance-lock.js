@@ -27,6 +27,63 @@ function pidAlive(pid) {
 }
 
 /**
+ * 进程的启动标识（Linux）：/proc/<pid>/stat 的 starttime 字段 —— 进程启动以来的时钟滴答数。
+ *
+ * 为什么需要它：容器每次重启 PID 都从低序号重新分配，残留锁文件里记的旧 PID
+ * 可能恰好被新容器里的另一个进程占用。只看"PID 还活着"会把残留锁误判成活锁，
+ * 结果是容器永远起不来（2026-10-21 实测：锁里记 8，新进程是 7，
+ * 而容器内 PID 8 确实存活 → 无限重启循环，只能手动删锁文件）。
+ * 带上 starttime 就能区分"同一个进程实例"和"PID 被复用后的另一个进程"。
+ *
+ * 非 Linux（Windows 桌面端）没有 /proc，返回 null —— 此时退回纯 PID 判定，
+ * 行为与改造前完全一致。
+ */
+function processStartToken(pid) {
+  try {
+    const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
+    // comm 字段可能含空格和括号，从最后一个 ')' 之后切
+    // 字段序：pid(1) comm(2) state(3) … starttime(22)
+    // 去掉 pid/comm 后 state 是下标 0，starttime 是下标 19
+    return stat.slice(stat.lastIndexOf(')') + 2).trim().split(/\s+/)[19] || null;
+  } catch {
+    return null;
+  }
+}
+
+/** 写进锁文件的内容：PID + 启动标识（拿不到启动标识时只写 PID，保持旧格式）。 */
+function buildLockContent() {
+  const token = processStartToken(process.pid);
+  return token ? `${process.pid}:${token}` : String(process.pid);
+}
+
+/** 解析锁文件：{ pid, token }。旧格式（纯数字）token 为 null。 */
+function readLock() {
+  try {
+    const raw = String(fs.readFileSync(LOCK_FILE, 'utf8')).trim();
+    const sep = raw.indexOf(':');
+    const pid = Number(sep >= 0 ? raw.slice(0, sep) : raw) || null;
+    const token = sep >= 0 ? (raw.slice(sep + 1) || null) : null;
+    return { pid, token };
+  } catch {
+    return { pid: null, token: null };
+  }
+}
+
+/**
+ * 判断锁的持有者是不是"当前这个 PID 对应的进程实例"。
+ *
+ * 已知活锁（有另一个实例真在跑）→ true
+ * PID 被复用（残留锁）→ false
+ * 信息不足（无 token 或读不到）→ true（保守：宁可拒绝启动，也不双开）
+ */
+function isSameInstance(lock) {
+  if (!lock.token) return true;
+  const current = processStartToken(lock.pid);
+  if (!current) return true;
+  return current === lock.token;
+}
+
+/**
  * 尝试获取单实例锁。
  *
  * 用 `wx`（O_CREAT|O_EXCL）原子创建锁文件：文件已存在则创建失败，
@@ -43,21 +100,19 @@ export function acquireInstanceLock() {
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       // wx：仅当文件不存在时创建，已存在则抛 EEXIST —— 原子操作，无竞态窗口
-      fs.writeFileSync(LOCK_FILE, String(process.pid), { flag: 'wx' });
+      fs.writeFileSync(LOCK_FILE, buildLockContent(), { flag: 'wx' });
       return { ok: true };
     } catch (error) {
       if (error?.code !== 'EEXIST') {
         return { ok: false, reason: `无法写入实例锁文件：${error?.message ?? error}` };
       }
       // 锁文件已存在：读 PID 判断是否活锁
-      let existingPid = null;
-      try {
-        existingPid = Number(String(fs.readFileSync(LOCK_FILE, 'utf8')).trim()) || null;
-      } catch { /* 读不出就当残留 */ }
-      if (existingPid && existingPid !== process.pid && pidAlive(existingPid)) {
-        return { ok: false, reason: `已有 QQ Agent 实例在运行（PID ${existingPid}）`, existingPid };
+      const lock = readLock();
+      if (lock.pid && lock.pid !== process.pid && pidAlive(lock.pid) && isSameInstance(lock)) {
+        return { ok: false, reason: `已有 QQ Agent 实例在运行（PID ${lock.pid}）`, existingPid: lock.pid };
       }
-      // 残留锁（进程已死 / 锁是自己上次异常留下的）：删掉，下一轮用 wx 重新抢
+      // 残留锁（进程已死 / PID 被复用 / 锁是自己上次异常留下的）：
+      // 删掉，下一轮用 wx 重新抢
       try { fs.unlinkSync(LOCK_FILE); } catch { /* 删不掉则下一轮 wx 仍 EEXIST，最终报错 */ }
     }
   }
@@ -68,8 +123,7 @@ export function acquireInstanceLock() {
 export function releaseInstanceLock() {
   try {
     // 只删自己的锁：万一锁被新实例抢走了，不能误删
-    const content = String(fs.readFileSync(LOCK_FILE, 'utf8')).trim();
-    if (Number(content) === process.pid) fs.unlinkSync(LOCK_FILE);
+    if (readLock().pid === process.pid) fs.unlinkSync(LOCK_FILE);
   } catch { /* 文件不存在/读不出都无所谓 */ }
 }
 
