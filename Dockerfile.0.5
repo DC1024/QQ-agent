@@ -51,6 +51,10 @@ COPY "0.5(unfinished)/ui" ./ui
 COPY "0.5(unfinished)/bundled" ./bundled
 COPY "0.5(unfinished)/assets" ./assets
 COPY "0.5(unfinished)/skills" ./skills
+# 自研插件（0.5 原生格式）：目前只有 reply-safety —— 为内核的回复救援路径
+# 提供 reply.is-planning-text / reply.loose-send。没有它，模型把话写在正文而
+# 没调 send_message 时会被内核直接丢弃（会话状态 noreply）。
+COPY "0.5(unfinished)/plugins" ./plugins
 COPY "0.5(unfinished)/scripts" ./scripts
 COPY "0.5(unfinished)/docs" ./docs
 COPY "0.5(unfinished)/examples" ./examples
