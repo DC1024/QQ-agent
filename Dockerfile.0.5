@@ -1,0 +1,74 @@
+# syntax=docker/dockerfile:1
+#
+# QQ Agent 0.5（DSH 架构重写版，上游自标 unfinished）容器镜像。
+#
+# ⚠️ 这是实验镜像，与根目录 Dockerfile（0.4 稳定版）并存：
+#    - 本文件产出  :0.5-unfinished 系列 tag
+#    - 根目录那个产出 :latest —— **latest 永远指向可正常使用的 0.4**
+#    0.5 上游 README 明确"仍在开发和验收中"，请先在测试实例上试，
+#    不要直接顶替线上实例。
+#
+# 入口是 `node src/server.js`（headless，不含 Electron 桌面壳）。
+# APP_ROOT 由 src/kernel/env.js 从模块自身位置向上两级锚定（绝不用 cwd），
+# 所以必须保持 /app/src 布局，bundled/ 也必须落在 /app/bundled。
+#
+# 数据目录：0.5 的配置格式与 0.4 不同（有 migrator，但升级不保证平滑），
+# **不要直接把线上 0.4 的 data/ 挂进来**，先挂空目录跑通再说。
+
+FROM node:22-bookworm-slim AS deps
+WORKDIR /app
+ENV NODE_ENV=production
+
+# 生产依赖只有 js-yaml / ws；electron / electron-builder / playwright-core
+# 全在 devDependencies，--omit=dev 跳过（否则会触发 electron 二进制下载，
+# 白白多几百 MB 还容易因网络失败）。
+COPY "0.5(unfinished)/package.json" "0.5(unfinished)/package-lock.json" ./
+RUN npm ci --omit=dev --no-audit --no-fund \
+ && npm cache clean --force
+
+
+FROM node:22-bookworm-slim
+
+# ffmpeg/ffprobe：视频理解可选功能，缺失时自动降级为"只读元信息"。
+# tini：PID 1 转发信号，docker stop 时能走完 kernel.stop() 优雅退出。
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ffmpeg ca-certificates tini \
+ && rm -rf /var/lib/apt/lists/*
+
+# QQ_AGENT_HOST / QQ_AGENT_ALLOWED_HOSTS 不在这里设默认值：
+# 不设 = 只监听 127.0.0.1 + 只认回环 Host（与上游 SPEC 一致，最安全）。
+# 要局域网访问必须成对给（只开 0.0.0.0 不给白名单 = 页面能开、接口全 403）。
+ENV NODE_ENV=production \
+    QQ_AGENT_DATA_DIR=/app/data \
+    QQ_AGENT_PORT=3210
+
+WORKDIR /app
+
+COPY --from=deps /app/node_modules ./node_modules
+COPY "0.5(unfinished)/package.json" ./
+COPY "0.5(unfinished)/src" ./src
+COPY "0.5(unfinished)/ui" ./ui
+COPY "0.5(unfinished)/bundled" ./bundled
+COPY "0.5(unfinished)/assets" ./assets
+COPY "0.5(unfinished)/skills" ./skills
+COPY "0.5(unfinished)/scripts" ./scripts
+COPY "0.5(unfinished)/docs" ./docs
+COPY "0.5(unfinished)/examples" ./examples
+
+# plugins/ 出厂为空（git 不追踪空目录），但扩展热重载要求目录存在。
+# /app/data 声明为 VOLUME：命名卷会继承这里的属主，bind mount 需要
+# 在宿主机先 chown 1000:1000。
+RUN mkdir -p /app/data /app/plugins \
+ && chown -R node:node /app
+
+USER node
+
+EXPOSE 3210
+VOLUME ["/app/data"]
+
+# /api/status 同样过来源校验，必须用回环 Host 访问（回环永远放行）。
+HEALTHCHECK --interval=30s --timeout=5s --start-period=25s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:'+(process.env.QQ_AGENT_PORT||3210)+'/api/status').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["node", "src/server.js"]

@@ -18,6 +18,17 @@ const LOOPBACK_HOSTS = [
   /^127\.0\.0\.1(:\d+)?$/, /^localhost(:\d+)?$/, /^\[::1\](:\d+)?$/, // SPEC §17.2 回环 Host 判定
 ];
 
+// ── 容器化改动（fork DC1024/QQ-agent，与 0.4 镜像同口径）──────────────
+// 上游按 SPEC 只监听 127.0.0.1、且只认回环 Host。放进容器后从局域网 / 域名
+// 访问会被 originAllowed 一律 403，控制台能开页面但接口全废。这里补两个
+// 环境变量，**不设时行为与上游完全一致**（仍只监听回环、只认回环 Host）：
+//   QQ_AGENT_HOST=0.0.0.0             —— 监听地址（0.0.0.0 = 放开网卡）
+//   QQ_AGENT_ALLOWED_HOSTS=a:1,b:2    —— 额外可信 Host，含端口、逗号分隔
+// 两者必须成对给：只开 0.0.0.0 不给白名单 = 页面能开、接口全 403。
+const BIND_HOST = String(process.env.QQ_AGENT_HOST ?? '').trim() || '127.0.0.1';
+const EXTRA_ALLOWED_HOSTS = String(process.env.QQ_AGENT_ALLOWED_HOSTS ?? '')
+  .split(',').map((s) => s.trim()).filter(Boolean);
+
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
   '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
@@ -47,7 +58,7 @@ const PANEL_CSP = SHELL_CSP.replace("frame-ancestors 'none'", "frame-ancestors '
 // 127.0.0.1 发简单请求——CORS 只挡读响应、挡不住副作用，所以要看 Host/Origin/Referer。
 function originAllowed(req) {
   const host = req.headers.host ?? '';
-  if (!LOOPBACK_HOSTS.some((re) => re.test(host))) return false;
+  if (!LOOPBACK_HOSTS.some((re) => re.test(host)) && !EXTRA_ALLOWED_HOSTS.includes(host)) return false;
   const origin = req.headers.origin;
   if (origin) {
     try { return new URL(origin).host === host; } catch { return false; }
@@ -356,7 +367,7 @@ export function createHttpServer({ config, log = console, bus = null, staticDir,
             reject(err);
           }
         });
-        srv.listen(port, '127.0.0.1', () => {
+        srv.listen(port, BIND_HOST, () => {
           server = srv;
           actualPort = srv.address().port;
           pingTimer = setInterval(() => {

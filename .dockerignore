@@ -8,8 +8,18 @@ release
 *.msi
 *.tar.zst
 
-# 0.5 是未完成的架构重写版，不参与本镜像构建（白占构建上下文）
-0.5(unfinished)
+# 0.5(unfinished) 由 Dockerfile.0.5 单独构建，源文件要进上下文，
+# 但里面几样大件对运行时没用，仍然排除（website 18M / test 4.6M /
+# electron 桌面壳 / 开发过程记录 md 共 450K）
+0.5(unfinished)/website
+0.5(unfinished)/test
+0.5(unfinished)/electron
+0.5(unfinished)/build
+0.5(unfinished)/dist
+0.5(unfinished)/progress.md
+0.5(unfinished)/findings.md
+0.5(unfinished)/task_plan.md
+0.5(unfinished)/启动QQ机器人.bat
 
 # 运行时数据（真实聊天记录、含 API Key 的 config.json、NapCat 登录态）
 data

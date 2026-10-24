@@ -1,0 +1,80 @@
+name: Build and push 0.5 (unfinished) image
+
+# 与 docker-publish.yml（0.4 → :latest）完全分开：
+#   - 单独文件：0.5 的改动不会碰 0.4 的构建，反过来也一样
+#   - 独立 tag：只打 :0.5-unfinished 与 :0.5-unfinished-<sha>
+#     **绝不打 latest** —— 上游把 0.5 目录标了 unfinished，latest 必须留在 0.4
+#   - 缓存 scope 分开，避免两个 job 互相顶掉 GHA 缓存
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Dockerfile.0.5'
+      - '.dockerignore'
+      - '.github/workflows/docker-publish-0.5.yml'
+      - '0.5(unfinished)/src/**'
+      - '0.5(unfinished)/ui/**'
+      - '0.5(unfinished)/bundled/**'
+      - '0.5(unfinished)/assets/**'
+      - '0.5(unfinished)/skills/**'
+      - '0.5(unfinished)/scripts/**'
+      - '0.5(unfinished)/docs/**'
+      - '0.5(unfinished)/examples/**'
+      - '0.5(unfinished)/package.json'
+      - '0.5(unfinished)/package-lock.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ghcr 要求镜像名全小写，而仓库 owner 是 DC1024（含大写），
+      # 不转小写会报 "invalid reference format"。
+      - name: Compute image name
+        run: |
+          repo="$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
+          echo "IMAGE=${REGISTRY}/${repo}" >> "$GITHUB_ENV"
+          echo "image will be ${REGISTRY}/${repo}"
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=raw,value=0.5-unfinished,enable={{is_default_branch}}
+            type=sha,format=short,prefix=0.5-unfinished-,enable={{is_default_branch}}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.0.5
+          push: true
+          # 只构建 amd64：目标机器是 x86_64，多架构要过 QEMU、构建时间翻几倍。
+          platforms: linux/amd64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=0.5
+          cache-to: type=gha,mode=max,scope=0.5
