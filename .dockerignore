@@ -8,6 +8,9 @@ release
 *.msi
 *.tar.zst
 
+# 0.5 是未完成的架构重写版，不参与本镜像构建（白占构建上下文）
+0.5(unfinished)
+
 # 运行时数据（真实聊天记录、含 API Key 的 config.json、NapCat 登录态）
 data
 data-napcat

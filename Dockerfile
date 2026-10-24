@@ -14,7 +14,11 @@ ENV NODE_ENV=production
 # 只装生产依赖：electron / electron-builder / jsdom 全在 devDependencies，
 # 用 --omit=dev 跳过（否则会触发 electron 的二进制下载，白白多几百 MB）。
 # 生产依赖只有 js-yaml / undici / ws，全部纯 JS，无需编译工具链。
-COPY package.json package-lock.json ./
+# ⚠️ 上游把项目挪进了 0.4/ 子目录（0.5 是未完成的重写版，另在
+#    0.5(unfinished)/），所以这里全部从 0.4/ 取；但拷进镜像后仍铺成
+#    /app/src、/app/ui 这些原有路径 —— 容器内布局保持不变，
+#    线上已部署的 compose / 数据卷 / 环境变量一行都不用改。
+COPY 0.4/package.json 0.4/package-lock.json ./
 RUN npm ci --omit=dev --no-audit --no-fund \
  && npm cache clean --force
 
@@ -35,14 +39,14 @@ ENV NODE_ENV=production \
 WORKDIR /app
 
 COPY --from=deps /app/node_modules ./node_modules
-COPY package.json ./
-COPY src ./src
-COPY ui ./ui
-COPY assets ./assets
+COPY 0.4/package.json ./
+COPY 0.4/src ./src
+COPY 0.4/ui ./ui
+COPY 0.4/assets ./assets
 
 # skills/ 与 plugins/ 出厂为空（git 不追踪空目录），但热重载要求目录存在。
 # /app/data 同时被声明为 VOLUME：用命名卷挂载时会继承这里的属主，
-# 用 bind mount 时需要在宿主机先 chown 1000:1000（见 doc/DOCKER.md）。
+# 用 bind mount 时需要在宿主机先 chown 1000:1000（见 0.4/doc/DOCKER.md）。
 RUN mkdir -p /app/data /app/skills /app/plugins \
  && chown -R node:node /app
 
