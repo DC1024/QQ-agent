@@ -14,6 +14,26 @@ function routePattern(path) {
   return new RegExp(`^${path.replace(/[.*+?^${}()|[\]\\]/g,'\\$&').replace(/:([A-Za-z][A-Za-z0-9_]*)/g,'[^/]+')}$`);
 }
 
+/**
+ * UUID v4，不依赖安全上下文。
+ *
+ * 为什么不能直接用 crypto.randomUUID：它是 **secure-context-only** API，只有
+ * https 或 localhost / 127.0.0.1 才暴露。容器部署后大家是用
+ * http://<局域网IP>:<端口> 打开控制台的，那里 crypto.randomUUID 是 undefined →
+ * 每实例化一个 RpcBridge 就抛 "crypto.randomUUID is not a function"，面板拿不到
+ * 任何数据（页面空、右上不断弹 toast）。
+ * crypto.getRandomValues 在任何上下文都可用，用它拼一个等价的 v4 即可。
+ */
+function randomId() {
+  if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;   // version 4
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;   // variant 10xx
+  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
+}
+
 /** Opaque-origin iframes require targetOrigin="*"; source + panel id + one-time nonce authenticate every message. */
 export class RpcBridge {
   constructor({frame,api,manifest,timeout=15000,onUserCall=async()=>{throw new Error('当前运行环境未提供该能力');},onUserConfig=async()=>({}),onNotify=()=>{},onReady=null,onTheme=null,onOpenExternal=null,onPublishQuote=null,onPublishFeedback=null,onManageConsoleToken=null,onUpdateAction=null,onPublishMarket=null,onAuthenticateMarket=null,onCaptchaDiagnostics=null,onDestructiveProgress=null,viewState=null}={}) {
@@ -23,7 +43,7 @@ export class RpcBridge {
     this.onPublishMarket=onPublishMarket;this.marketController=null;this.onCaptchaDiagnostics=onCaptchaDiagnostics;
     this.onAuthenticateMarket=onAuthenticateMarket;this.authenticationController=null;
     this.onDestructiveProgress=onDestructiveProgress;this.destructiveProgressActive=false;this.leaving=false;
-    this.nonce=crypto.randomUUID().replaceAll('-',''); this.controllers=new Set(); this.closed=false; this.ready=false; this.flushPromise=null; this.flushResolve=null;this.flushReject=null;this.flushTimer=null;this.flushId=null;this.viewState=viewState;
+    this.nonce=randomId().replaceAll('-',''); this.controllers=new Set(); this.closed=false; this.ready=false; this.flushPromise=null; this.flushResolve=null;this.flushReject=null;this.flushTimer=null;this.flushId=null;this.viewState=viewState;
     this.settingsSave=createSettingsSaveLifecycle({api:this.api,manifest:this.manifest,notify:this.onNotify});
     this.listener=event=>this.handle(event); window.addEventListener('message',this.listener);
     frame.addEventListener('load',()=>this.send({jsonrpc:'2.0',method:'panel.init',params:{nonce:this.nonce,panel:this.manifest.id,...(this.settingsSave?{settingsSave:true}:{}),...(this.viewState?{viewState:this.viewState.read()}:{})}}),{once:true});
@@ -191,7 +211,7 @@ export class RpcBridge {
     this.leaving=true;this.clearDestructiveProgress();
     if(this.closed||!this.ready)return Promise.resolve();
     if(this.flushPromise)return this.flushPromise;
-    this.flushId=crypto.randomUUID();this.viewState?.leave(this.flushId);
+    this.flushId=randomId();this.viewState?.leave(this.flushId);
     this.flushPromise=new Promise((resolve,reject)=>{this.flushResolve=resolve;this.flushReject=reject;this.flushTimer=setTimeout(()=>this.finishFlush(null,true),this.timeout);});
     this.send({jsonrpc:'2.0',method:'panel.leave',params:{flushId:this.flushId}});return this.flushPromise;
   }
